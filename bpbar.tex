@@ -1,0 +1,294 @@
+\documentclass[a4paper]{paper}
+\usepackage{amsmath}
+\usepackage{amsthm}
+\usepackage{amsfonts}
+\usepackage[alphabetic]{amsrefs}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage[english]{babel}
+\usepackage{sagetex}
+\usepackage{csquotes}
+\usepackage{tikz}
+\usepackage{adjustbox}
+\usepackage{inconsolata}
+
+\newcommand{\id}{\operatorname{id}}
+\newcommand{\BP}{BP}
+\newcommand{\us}{_\ast}
+\newcommand{\os}{^\ast}
+\newcommand{\QQ}{\mathbb Q}
+\newcommand{\FF}{\mathbb F}
+\newcommand{\ZZ}{\mathbb Z}
+\newcommand{\NN}{\mathbb N}
+
+\newcommand{\stt}[1]{{\tt#1}}
+
+\newcommand{\scrb}{{\mathcal B}}
+\newcommand{\scrh}{{\mathcal H}}
+
+\lstdefinestyle{SageInput}{
+  style=DefaultSageInput,
+  basicstyle={\small\linespread{0.8}\ttfamily},
+}
+\lstdefinestyle{SageOutput}{
+  style=DefaultSageOutput,
+  basicstyle={\small\linespread{0.8}\ttfamily},
+}
+
+
+
+\raggedright
+\setlength{\parskip}{8pt plus 5pt minus 2pt}
+
+\title{A toy implementation of the $\BP$-bar complex in Sage}
+\author{Christian Nassau}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{sagesilent}
+load("bpbar.py")
+\end{sagesilent}
+
+We describe a small Sage library that implements enough of the Bar complex for
+$\BP$ to compute some low-lying Novikov-Ext groups. More specifically,
+we implement a class \stt{BPBar} that represents the infinite tensor power
+\begin{align*}
+    \scrb &= \pi\us\left(\BP\land\BP\land\cdots\right) = \Gamma\otimes_A\Gamma\otimes_A\Gamma\otimes_A\cdots
+\intertext{and also a class \stt{HBPBar} which represents}
+    \scrh &= H\us\left(\BP\land\BP\land\cdots\right) \subset \QQ\otimes {\mathcal B}
+\end{align*}
+Here $(A,\Gamma) = (\BP\us,\BP\us\BP)$ is the $\BP$-Hopf algebroid
+and we think of $\BP^{\land\infty}$ as the colimit of the $\BP^{\land k}$
+where $\BP^{\land k}\rightarrow \BP^{\land(k+1)}$ is given by $x\mapsto x\land 1$.
+
+This code was an attempt to recreate some computations by Glen Wilson in Sage,
+and we thank him heartily
+for sharing his code and for many inspiring communications
+during the Homotopy Theory Summer in Berlin in 2018.
+
+\begin{section}{Overview of some classes}
+
+The $\scrh$ and $\scrb$ come equipped with classes \stt{BasisEnumerator}, \stt{BarBasis}
+that allow to loop through a basis of
+a $\BP^{\land s}$ in a fixed dimension.
+Specifically, an instance of \stt{BasisEnumerator} knows how to
+\begin{enumerate}
+\item loop through the weighted partitions $P_w(n)$ of an integer $n$ where $w=(w_1,\ldots,w_k)$ is an arbitrary
+list of weights
+\item efficiently compute the reverse map $P_w(n)\rightarrow \NN_0$ (function \stt{seqno})
+\end{enumerate}
+The \stt{BarBasis} translates this information from partitions to elements of $\scrb$ and $\scrh$.
+
+The structure maps of $\scrb$ and $\scrh$ are all derived from the map $\eta_R$
+which on $\BP^{\land\infty}$ is given by $x\mapsto 1\land x$. For the generators $m_k$, $t_j$ of $\scrh$
+this is given by
+$$\eta_R(m_n) = \sum_{i+j=n} m_i t_j^{p^i},\quad
+\eta_R(\underbrace{1\vert\cdots\vert1\vert t_k}_{\text{$p$ ones}})
+= \underbrace{1\vert\cdots\vert1\vert t_k}_{\text{$p+1$ ones}}.
+$$
+This is later used to compute the $\Delta(t_n)$ via $\Delta\eta_R(m_n) = (\eta_R\otimes\id)\eta_R(m_n)$.
+
+In Sage one can compute these as follows (here for $p=3$):
+\begin{sagecommandline}
+sage: M = HBPBar(3) ; m,t = M.gens()
+sage: e,D = M.etaR,M.Delta
+sage: m[1], e(m[1])
+sage: m[2], e(m[2])
+sage: m[3], e(m[3])
+sage: # an iterated eta_R of t2
+sage: t[2], e(t[2]), e(e(t[2]))
+sage: # two coproducts
+sage: D(t[1])
+sage: D(t[2])
+\end{sagecommandline}
+
+There is a class \stt{ArakiGens} that implements the isomorphisms
+$\scrb\otimes\QQ \leftrightarrow \scrh\otimes\QQ$. This is used to transport the structure formulas
+from \stt{HBPBar} to \stt{BPBar}:
+\begin{sagecommandline}
+sage: A = ArakiGens(3)
+sage: A.mapm2v()
+sage: A.mapm2v()(m[1])
+sage: A.mapm2v()(m[2])
+sage: A.mapv2m()
+sage: A.mapv2m()(A.mapm2v()(m[2]))
+\end{sagecommandline}
+
+For $\scrb$ at $p=3$ we then get, for example
+\begin{sagecommandline}
+sage: B = BPBar(3) ; v,t = B.gens()
+sage: B.etaR(v[1])
+sage: B.etaR(v[2])
+sage: B.Delta(t[1])
+sage: B.Delta(t[2])
+\end{sagecommandline}
+
+One can use a different base ring for \stt{BPBar} to compute with a reduction
+of $\scrb$ modulo some $p^N$:
+\begin{sagecommandline}
+sage: B = BPBar(3,IntegerModRing(3**2)) ; v,t = B.gens()
+sage: B.Delta(t[3])
+\end{sagecommandline}
+
+For the bar complex we also need the \enquote{higher coproducts} $\Delta_k$
+that are induced by the map
+$$a_1\land a_2\land\cdots \mapsto
+a_1\land\cdots a_k\land 1\land a_{k+1}\land\cdots$$
+on spectra.
+These are available as \stt{Delta\_map(k)}:
+\begin{sagecommandline}
+sage: X = BPBar(2) ; v,t = X.gens()
+sage: e,D = X.etaR, X.Delta_map
+sage: D(3)
+sage: D(2)(t[1])
+sage: D(2)(e(t[1]))
+sage: D(2)(e(e(t[1])))
+sage: D(2)(e(e(e(t[1]))))
+\end{sagecommandline}
+
+Under the hood a lot of (hopefully well-positioned) caching is going on, to make sure that
+the basic structure formulas (including the $\eta_R(v_j)$ and $\Delta_k(t_j)$)
+are only computed once.
+This is particularly relevant when such a structure map is evaluated on a monomial:
+\begin{sagecommandline}
+sage: D(2)(e(t[1]**3*t[2]))
+\end{sagecommandline}
+
+\end{section}
+
+
+\begin{section}{Cohomology}
+
+    The \stt{BPBar} supports a method \stt{matrix\_differential} that computes the matrix
+    of the bar differential $\delta:\Gamma^{\otimes s}\rightarrow\Gamma^{\otimes (s+1)}$,
+    i.~e.~ the alternating sum of the $\Delta_k$.
+    \begin{sageexample}
+        sage: BPBar(3).matrix_differential(2,8)
+    \end{sageexample}
+    Here the matrix is computed with respect to the following bases:
+    \begin{sageexample}
+        sage: list(BPBar(3).bar_basis(2,8))
+        sage: list(BPBar(3).bar_basis(3,8))
+    \end{sageexample}
+    The method \stt{Ext\_smith} goes one step further and computes the Smith normal form
+    of the differential; for example, in bidegree (2,16) we find one diagonal coefficient that
+    is divisible by $p$:
+    \begin{sagecommandline}
+    sage: d,u,v = BPBar(3).matrix_differential(2,16).smith_form(integral=True)
+    sage: d.diagonal()
+    \end{sagecommandline}
+    This coefficient corresponds to an $x\in \Gamma^{\otimes 2}$ such that $\delta(x)\equiv 0\mod 6$;
+    we therefore find a non-zero cocycle $y=\frac16\delta(x)$. The \stt{Ext\_smith} routine
+    uses the transformation matrix \stt{u} to compute this cocycle:
+    \begin{sagecommandline}
+    sage: L = list(BPBar(3).Ext_smith(3,16,withcocycle=True))
+    sage: # L is a list of tuples (cf,x,y) with delta(x) = cf*y
+    sage: (c,x,y), = L
+    \end{sagecommandline}
+    Then
+    $$c=\sage{c},\quad x=\sage{x}$$
+    and
+    $$y=\sage{y}.$$
+
+    We conclude with some tables that illustrate the timing of such Ext computations and the
+    size/growth of the bar resolution.
+
+\end{section}
+\begin{sagesilent}
+def normpower(p,n):
+    Zp = IntegerModRing(p)
+    ans = 1
+    while Zp(n) == 0:
+        ans *= p
+        n /= p
+    return ans
+def cachedcomputation(c):
+    import pickle
+    def cf(X,s,d):
+        p=X.prime
+        fname = "bpbar.cache.%d.%d.%d" % (p,s,d)
+        if not os.path.exists(fname):
+          with open(fname, 'wb') as f:
+            pickle.dump(c(X,s,d),f)
+            print("stored cached data in %s" % fname)
+        with open(fname, 'rb') as f:
+            print("loaded cached data from %s" % fname)
+            L = pickle.load(f)
+        return L
+    return cf
+@cachedcomputation
+def extcomp(X,s,d):
+    p = X.prime
+    g=globals()
+    cmd = "globals()['L']=list(BPBar(%d).Ext_smith(%d,%d))" % (X.prime,s,d)
+    if True:
+        secs = timeit(cmd,seconds=True,number=1)
+        L = g['L']
+    else:
+        secs = 3.62123232
+        L = [(p,1,1),(7*p*p,1,1)]
+    return [ secs, "+".join(str(normpower(p,c)) for (c,x,y) in L)]
+figcode="""\\begin{figure}[ht]
+    \\begin{adjustbox}{addcode={\\begin{minipage}{0.8\\width}}{\\caption{%%
+        %s
+        }\\end{minipage}},rotate=270,center}
+        \\begin{tikzpicture}[scale=1.4]
+        %s\\end{tikzpicture}
+    \\end{adjustbox}
+  \\end{figure}"""
+def getfig(X,smax,dmax):
+   p = X.prime
+   caption="Novikov Ext for the prime $%d$" % p
+   dims = [d for d in range(1,smax+dmax+1) if d % (2*(p-1)) == 0 ]
+   fcode = "\\draw (0,1) grid (%d,%d);\n" % (len(dims),smax+1)
+   for s in range(1,smax+1):
+      fcode += "\\node[anchor=east] at (-0.2,%f) {\\small $%d$};\n" % (s+0.5,s)
+   for (i,d) in enumerate(dims):
+      fcode += "\\node[anchor=center] at (%f,0.8) {\\small $%d$};\n" % (i+0.5,d)
+   for s in range(1,smax+1):
+      skip = False
+      for (i,d) in enumerate(dims):
+         if skip:
+             secs, bas = "skipped", "?"
+         else:
+             secs, bas = extcomp(X,s,d)
+             print("Computed (%d,%d) for p=%d in %s" % (s,d,p,secs))
+             if secs>300:
+                 skip=True
+             secs = "%.1fs" % secs
+         fcode += "\\node[anchor=center] at (%f,%f) {%s};\n" % (i+0.5,s+0.7,"\\small %s" % bas)
+         fcode += "\\node[anchor=center] at (%f,%f) {%s};\n" % (i+0.5,s+0.2,"\\scriptsize %s" % secs)
+   return figcode % (caption,fcode)
+\end{sagesilent}
+
+\sagestr{getfig(BPBar(2),6,18)}
+
+\sagestr{getfig(BPBar(3),6,40)}
+
+\sagestr{getfig(BPBar(5),6,100)}
+
+
+\begin{sagesilent}
+def dimtable(X,maxs,ndims):
+    p = X.prime
+    dims = list(2*(p-1)*_ for _ in range(1,ndims))
+    tab = "\\begin{figure}\\caption{Rank of $\\BP\\us\\BP^{\\otimes s}$ for the prime $"+str(X.prime)+"$}\n"
+    tab += "\\medskip\\begin{center}\\begin{tabular}{c|r" + "r"*maxs + "}\n"
+    tab += "dim&" + "&".join(str(_) for _ in range(maxs)) + "\\\\\n"
+    tab += "\\hline\n"
+    tab += "\\\\\n".join("%d&"%d +   "&".join(str(len(X.bar_basis(sdeg,d))) for sdeg in range(maxs)) for d in dims)
+    tab += "\n\\end{tabular}\\end{center}"
+    tab += "\n\\end{figure}"
+    return tab
+\end{sagesilent}
+
+\sagestr{dimtable(BPBar(2),7,30)}
+\sagestr{dimtable(BPBar(3),7,30)}
+\sagestr{dimtable(BPBar(5),7,30)}
+
+
+\end{document}
