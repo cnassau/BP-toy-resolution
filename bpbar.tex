@@ -257,7 +257,7 @@ def getfig(X,smax,dmax):
          else:
              secs, bas = extcomp(X,s,d)
              print("Computed (%d,%d) for p=%d in %s" % (s,d,p,secs))
-             if secs>300:
+             if secs>2000:
                  skip=True
              secs = "%.1fs" % secs
          fcode += "\\node[anchor=center] at (%f,%f) {%s};\n" % (i+0.5,s+0.7,"\\small %s" % bas)
@@ -276,7 +276,7 @@ def getfig(X,smax,dmax):
 def dimtable(X,maxs,ndims):
     p = X.prime
     dims = list(2*(p-1)*_ for _ in range(1,ndims))
-    tab = "\\begin{figure}\\caption{Rank of $\\BP\\us\\BP^{\\otimes s}$ for the prime $"+str(X.prime)+"$}\n"
+    tab = "\\begin{figure}\\caption{Rank of $\\BP\\us\\BP^{\\land s}$ for the prime $"+str(X.prime)+"$}\n"
     tab += "\\medskip\\begin{center}\\begin{tabular}{c|r" + "r"*maxs + "}\n"
     tab += "dim&" + "&".join(str(_) for _ in range(maxs)) + "\\\\\n"
     tab += "\\hline\n"
